@@ -2,27 +2,19 @@ import os
 import discord
 from discord.ext import commands
 
-import firebase_admin
-from firebase_admin import credentials
-
-cred = credentials.Certificate("path/to/serviceAccountKey.json")
-firebase_admin.initialize_app(cred)
-
 bot = commands.Bot(command_prefix=commands.when_mentioned_or(">>"))
 
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import firestore
 
-@bot.event
-async def on_ready():
-    print("Bot loaded with name {0.user}".format(bot))
+cred = credentials.Certificate('./fantasy-rp-9dd00.json')
+firebase_admin.initialize_app(cred)
 
+database = firestore.client()
 
-# @bot.event
-# async def on_message(_message):
-#     if _message.reference is not None and not _message.is_system():
-#         print("1")
-#         await bot.http.delete_message(_message.reference.channel_id, _message.reference.message_id)
-#         print("awaited")
-#         _message.delete()
+receiving_char_channelID = 987191573764800512
+list_char_channelID = 987191597038981171
 
 @bot.command()
 async def my_id(ctx, *arg):
@@ -30,19 +22,21 @@ async def my_id(ctx, *arg):
     embed.title = "Your id is {0}".format(ctx.author.id)
     await ctx.message.reply(embed=embed)
 
-
 @bot.command()
 async def send_embed(ctx, *args):
     embed = discord.Embed()
     channel = ctx.channel
+    print("Embed")
     for _input in args:
         splitted = _input.split(" ")
 
-        for _i, _s in enumerate(splitted):
-            if _s[-1] == '\\' and _i < len(splitted):
-                splitted[_i : _i+1] = [''.join(splitted[_i : _i+1])]
-
         print(str(splitted))
+
+        # for _i, _s in enumerate(splitted):
+        #     if _s[-1] == '\\' and _i < len(splitted):
+        #         splitted[_i : _i+1] = [''.join(splitted[_i : _i+1])]
+        #
+        # print(str(splitted))
 
         if len(splitted) > 1:
             prop = splitted[0]
@@ -68,6 +62,88 @@ async def send_embed(ctx, *args):
 
     await ctx.message.delete()
     await channel.send(embed=embed)
+
+@bot.command()
+async def clear(ctx, *args):
+    try:
+        async for message in ctx.channel.history():
+            try:
+                await message.delete()
+            except:
+                print("Error in clear one message.")
+    except:
+        ctx.message.reply("Unable to execute command in this channel.")
+
+@bot.event
+async def on_ready():
+    print("Bot loaded with name {0.user}".format(bot))
+
+@bot.event
+async def on_message(_message):
+    await bot.process_commands(_message)
+
+    # accepting characters
+    if _message.channel.id == receiving_char_channelID:
+        character_name = ''
+        author_id = _message.author.id
+        if len(_message.embeds) == 0: # submission is done in Message
+            content = _message.content.casefold()
+            a_ = content.split('name:')
+            if len(a_) > 1:
+                try:
+                    character_name = a_[1].split('\n')[0]
+                except:
+                    character_name = 'new character'
+
+        else: # submission is done in Google Doc
+            character_name = _message.embeds[0].title
+
+        # new character is successfully added
+        if character_name != '':
+            await _message.reply("Your character is saved under the name of '{0}'".format(character_name))
+            snapshot = database.collection('User').document(str(author_id)).get()
+            list_channel = await bot.fetch_channel(channel_id=list_char_channelID)
+            new_character = {
+                'name': character_name,
+                'url': _message.jump_url,
+            }
+            # first character
+            if not snapshot.exists:
+                array = [new_character]
+                embed = await create_character_list_embed(authorID=author_id, char_array=array)
+                list_message = await list_channel.send(embed=embed)
+                database.collection('User').document(str(author_id)).set({
+                    "character_list_messageID": list_message.id,
+                    "characters": array
+                })
+            else:
+                data = snapshot.to_dict()
+                data['characters'].append(new_character)
+                list_message = await list_channel.fetch_message(data['character_list_messageID'])
+                embed = await create_character_list_embed(authorID=author_id, char_array=data['characters'])
+                if list_message is None:
+                    new_list_message = await list_channel.send(embed=embed)
+                    data['character_list_messageID'] = new_list_message.id
+                else:
+                    await list_message.edit(embed=embed)
+                database.collection('User').document(str(author_id)).update(data)
+
+    # delete message
+    # if _message.reference is not None and not _message.is_system():
+    #     await bot.http.delete_message(_message.reference.channel_id, _message.reference.message_id)
+    #     _message.delete()
+
+async def create_character_list_embed(authorID, char_array):
+    user = await bot.fetch_user(user_id=authorID)
+    embed = discord.Embed()
+    embed.set_author(name=user.name, icon_url=user.avatar_url)
+    desc_string = '( empty )'
+    for char_info in char_array:
+        if desc_string == '( empty )':
+            desc_string = ''
+        desc_string += "[{0}]({1})\n".format(char_info.get('name'), char_info.get('url'))
+    embed.description = desc_string
+    return embed
 
 bot.run(os.getenv('TOKEN'))
 
