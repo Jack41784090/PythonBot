@@ -26,39 +26,8 @@ async def my_id(ctx, *arg):
 async def send_embed(ctx, *args):
     embed = discord.Embed()
     channel = ctx.channel
-    print("Embed")
-    for _input in args:
-        splitted = _input.split(" ")
 
-        print(str(splitted))
-
-        # for _i, _s in enumerate(splitted):
-        #     if _s[-1] == '\\' and _i < len(splitted):
-        #         splitted[_i : _i+1] = [''.join(splitted[_i : _i+1])]
-        #
-        # print(str(splitted))
-
-        if len(splitted) > 1:
-            prop = splitted[0]
-            context = ' '.join(splitted[1:len(splitted)])
-            match prop:
-                case 'channel':
-                    new_channel = await bot.fetch_channel(channel_id=context)
-                    if new_channel is not None:
-                        channel = new_channel
-                case 'author':
-                    try:
-                        author = await bot.fetch_user(user_id=int(context))
-                        if author is not None:
-                            embed.set_author(name=author.name, icon_url=author.avatar_url)
-                    except ValueError:
-                        await ctx.message.reply("Author ID provided is invalid.")
-                case 'authorName':
-                    embed.set_author(name=context)
-                case 'title':
-                    embed.title = context
-                case 'desc':
-                    embed.description = context
+    await embed_edit(embed, args)
 
     await ctx.message.delete()
     await channel.send(embed=embed)
@@ -74,12 +43,46 @@ async def clear(ctx, *args):
     except:
         ctx.message.reply("Unable to execute command in this channel.")
 
+@bot.command()
+async def show_edit(ctx, *args):
+    message = ctx.message
+    if message.reference is not None and not message.is_system():
+        try:
+            reference_msg = message.reference.resolved
+            if len(reference_msg.embeds) > 0:
+                embed = reference_msg.embeds[0]
+                embed_dict = embed.to_dict()
+                reply_string = ""
+                for key, value in embed_dict.items():
+                    reply_string += "{0}:\n```{1}```\n".format(key, value)
+
+                await message.reply(reply_string)
+        except:
+            await message.reply("Failure")
+
+@bot.command()
+async def edit(ctx, *args):
+    message = ctx.message
+    if message.reference is not None and not message.is_system():
+        try:
+            reference_msg = message.reference.resolved
+            if len(reference_msg.embeds) > 0:
+                embed = reference_msg.embeds[0]
+                await embed_edit(embed, args)
+                await message.delete()
+                await reference_msg.edit(embed=embed)
+        except:
+            await message.reply("Failure")
+
 @bot.event
 async def on_ready():
     print("Bot loaded with name {0.user}".format(bot))
 
 @bot.event
 async def on_message(_message):
+    if _message.author.id != 634873409393917952:
+        return
+
     await bot.process_commands(_message)
 
     # accepting characters
@@ -141,9 +144,51 @@ async def create_character_list_embed(authorID, char_array):
     for char_info in char_array:
         if desc_string == '( empty )':
             desc_string = ''
-        desc_string += "[{0}]({1})\n".format(char_info.get('name'), char_info.get('url'))
+        arr = [word for word in char_info.get('name').split(" ") if len(word) > 0]
+        name = " ".join(arr).title()
+        desc_string += "[{0}]({1})\n".format(name, char_info.get('url'))
     embed.description = desc_string
     return embed
+
+async def embed_edit(_embed, args):
+    embed = _embed
+    author_name = ""
+    author_url = ""
+
+    for _input in args:
+        splitted = _input.split(" ")
+        if len(splitted) > 1:
+            prop = splitted[0]
+            context = ' '.join(splitted[1:len(splitted)])
+            print("{0}: {1}".format(prop, context))
+            match prop:
+                case 'thumbnail':
+                    embed.set_thumbnail(url=context)
+                case 'image':
+                    embed.set_image(url=context)
+                case 'channel':
+                    new_channel = await bot.fetch_channel(channel_id=context)
+                    if new_channel is not None:
+                        channel = new_channel
+                case 'author':
+                    try:
+                        author = await bot.fetch_user(user_id=int(context))
+                        print(author)
+                        if author is not None:
+                            author_name = author.name
+                            author_url = author.avatar_url
+                    except ValueError:
+                        print(ValueError)
+                case 'author_url':
+                    author_url = context
+                case 'author_name':
+                    author_name = context
+                case 'title':
+                    embed.title = context
+                case 'desc':
+                    embed.description = context
+
+    embed.set_author(name=author_name, icon_url=author_url)
 
 bot.run(os.getenv('TOKEN'))
 
